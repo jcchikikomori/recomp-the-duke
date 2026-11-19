@@ -30,6 +30,14 @@ FetchContent_MakeAvailable(zydis tomlplusplus imgui SDL3)
 # headers the generated code includes
 set(XBE_COMPILER_DIR ${CMAKE_BINARY_DIR}/compiler)
 get_filename_component(XBE_LLVM_BIN ${CMAKE_CXX_COMPILER} DIRECTORY)
+# the import library is COFF (x64): on the Windows toolchain lld-link.exe sits beside the compiler;
+# the Linux recompile lane uses the host's lld-link, which links COFF just as well
+if(EXISTS "${XBE_LLVM_BIN}/lld-link.exe")
+    set(XBE_LDLIB "${XBE_LLVM_BIN}/lld-link.exe")
+else()
+    find_program(XBE_LDLIB_PROGRAM lld-link REQUIRED)
+    set(XBE_LDLIB "${XBE_LDLIB_PROGRAM}")
+endif()
 file(GLOB XBE_GAME_CONFIGS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/config/*.toml)
 set(XBE_COMPILER_HEADERS ${XBE_SDK_DIR}/runtime/cpu/x86_ops.h ${XBE_SDK_DIR}/runtime/cpu/x86_context.h)
 file(GLOB XBE_FREESTANDING_HEADERS CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/cpu/freestanding/*)
@@ -98,7 +106,7 @@ function(add_xbe_image target xbe config partitions game_dir)
         BYPRODUCTS ${GEN_SOURCES} ${GEN}/x86_recomp_shared.h ${GEN}/image_symbols.h ${GEN}/hook_exports.h
                    ${GEN}/exports.def ${GEN}/imports.def ${GEN}/code.lib
         COMMAND xbe_recomp config/${config} --xdk ${XBE_SDK_DIR}/xdk
-        COMMAND ${XBE_LLVM_BIN}/lld-link.exe /lib /machine:x64 /def:${GEN}/imports.def /out:${GEN}/code.lib
+        COMMAND ${XBE_LDLIB} /lib /machine:x64 /def:${GEN}/imports.def /out:${GEN}/code.lib
         COMMAND ${CMAKE_COMMAND} -E touch ${GEN}/codegen.stamp
         DEPENDS xbe_recomp ${configs} ${CMAKE_CURRENT_SOURCE_DIR}/assets/${xbe}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
