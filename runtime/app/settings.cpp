@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -16,6 +17,7 @@
 
 #include "app/app.h"
 #include "audio/audio.h"
+#include "core/input.h"
 #include "core/log.h"
 
 namespace app {
@@ -35,10 +37,12 @@ Settings& Get() {
 
 void Load() {
     Settings& s = Get();
+    s.mouse_look = kGame.mouse_look;
     toml::table t;
     try {
         t = toml::parse_file(File().string());
     } catch (...) {
+        input::LoadControls(nullptr);
         return;
     }
     std::string mode = t["display_mode"].value_or(std::string(kModes[uint32_t(s.display_mode)]));
@@ -55,6 +59,13 @@ void Load() {
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
     s.audio_output = std::min(t["audio_output"].value_or(s.audio_output), audio::kOutputMono);
+    s.renderer = t["renderer"].value_or(s.renderer);
+    if (s.renderer != "d3d9") s.renderer = "d3d12";
+    s.keyboard_mouse = t["keyboard_mouse"].value_or(s.keyboard_mouse);
+    s.mouse_look = t["mouse_look"].value_or(s.mouse_look);
+    s.mouse_sensitivity = std::clamp(t["mouse_sensitivity"].value_or(s.mouse_sensitivity), 1u, 100u);
+    s.aspect_ratio = t["aspect_ratio"].value_or(s.aspect_ratio);
+    input::LoadControls(t["controls"].as_table());
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -78,11 +89,19 @@ toml::table Table() {
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
                   {"join_ip", s.join_ip},
-                  {"audio_output", int64_t(s.audio_output)}};
+                  {"audio_output", int64_t(s.audio_output)},
+                  {"renderer", s.renderer},
+                  {"keyboard_mouse", s.keyboard_mouse},
+                  {"mouse_look", s.mouse_look},
+                  {"mouse_sensitivity", int64_t(s.mouse_sensitivity)},
+                  {"aspect_ratio", s.aspect_ratio}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
     }
+    toml::table controls;
+    input::SaveControls(&controls);
+    t.insert("controls", std::move(controls));
     if (kGame.save) kGame.save(&t);
     return t;
 }
@@ -119,11 +138,48 @@ Mode Desktop() {
     return {uint32_t(GetSystemMetrics(SM_CXSCREEN)), uint32_t(GetSystemMetrics(SM_CYSCREEN))};
 }
 
+std::vector<Mode> DisplayModes() {
+    HMONITOR mon = MonitorFromWindow(static_cast<HWND>(Window()), MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    std::vector<Mode> modes;
+    if (!GetMonitorInfoW(mon, &mi)) return modes;
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    for (DWORD i = 0; EnumDisplaySettingsW(mi.szDevice, i, &dm); i++) {
+        // the desktop's colour depth; a monitor's portrait modes are the same modes turned
+        if (dm.dmBitsPerPel != 32 || dm.dmPelsWidth < 640 || dm.dmPelsHeight < 480) continue;
+        Mode m{dm.dmPelsWidth, dm.dmPelsHeight};
+        if (std::none_of(modes.begin(), modes.end(), [&](const Mode& o) { return o.width == m.width && o.height == m.height; }))
+            modes.push_back(m);
+    }
+    std::sort(modes.begin(), modes.end(), [](const Mode& a, const Mode& b) {
+        return a.width != b.width ? a.width < b.width : a.height < b.height;
+    });
+    return modes;
+}
+
 Mode Output() {
     const Settings& s = Get();
     if (s.width && s.height) return {s.width, s.height};
     return Desktop();
 }
+
+// Output for every frame, declared here for PictureAspect
+Mode CachedOutput();
+
+float PictureAspect() {
+    if (!kGame.hor_plus) return Widescreen() ? 16.0f / 9 : 4.0f / 3;
+    const std::string& a = Get().aspect_ratio;
+    for (const Aspect& k : kAspects)
+        if (a == k.name) return k.value;
+    // "screen", or a shape this build does not know: the output's
+    Mode m = CachedOutput();
+    float v = m.height ? float(m.width) / float(m.height) : 16.0f / 9;
+    return std::clamp(v, 4.0f / 3, 32.0f / 9);
+}
+
+float HorPlus() { return kGame.hor_plus ? PictureAspect() * 3 / 4 : 1.0f; }
 
 // Output for every frame: the desktop mode lookup reads the registry, so it runs again only when the resolution
 // setting or the window's monitor changes
@@ -152,6 +208,10 @@ bool Widescreen() {
     Mode m = CachedOutput();
     return m.width * 2 >= m.height * 3;  // 3:2 or wider
 }
+
+static std::atomic<bool> g_size_at_start{false};
+bool SizeAtStart() { return g_size_at_start; }
+void SetSizeAtStart(bool at_start) { g_size_at_start = at_start; }
 
 float RenderScale(uint32_t guest_height) {
     float h = CachedOutput().height * (Get().render_percent / 100.0f);

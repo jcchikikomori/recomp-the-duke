@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <future>
 #include <optional>
 #include <thread>
@@ -180,6 +181,7 @@ std::optional<Output> Open() {
         return std::nullopt;
     }
     ApplyMatrix(out);
+    if (std::getenv("XBE_MUTE")) out.master->SetVolume(0.0f);  // test runs: everything runs, nothing is heard
     return out;
 }
 

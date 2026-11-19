@@ -28,7 +28,21 @@ struct Settings {
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+    std::string renderer = "d3d12";        // "d3d9" draws with Direct3D 9, for D3D9 tools such as RTX Remix
+    bool keyboard_mouse = true;      // controller 1 is the keyboard and mouse too, bound in [controls]
+    bool mouse_look = false;         // the mouse turns controller 1's right stick; GameInfo::mouse_look by default
+    uint32_t mouse_sensitivity = 80;  // 1 to 100
+    // the picture's shape for a game that widens its own view (GameInfo::hor_plus): "screen" the output's, or one of
+    // kAspects; another game is shown at its console's 4:3 or 16:9 whatever this says
+    std::string aspect_ratio = "screen";
 };
+// the shapes aspect_ratio takes besides "screen", width over height
+struct Aspect {
+    const char* name;
+    float value;
+};
+inline constexpr Aspect kAspects[] = {{"4:3", 4.0f / 3}, {"16:10", 16.0f / 10}, {"16:9", 16.0f / 9}, {"21:9", 64.0f / 27},
+                                      {"32:9", 32.0f / 9}};
 
 Settings& Get();
 void Load();
@@ -40,10 +54,22 @@ struct Mode {
     uint32_t width, height;
 };
 Mode Desktop();
+std::vector<Mode> DisplayModes();  // the game window's monitor's modes, width then height ascending, no repeats
 Mode Output();
 float RenderScale(uint32_t guest_height);
+// the renderer keeps the picture's size from the start until the next; a settings page says so beside what changes it
+// (render scale, resolution, shape). No renderer of the SDK's sets it now: under a tool's d3d9.dll (RTX Remix) a new
+// size resets the back buffer live
+bool SizeAtStart();
+void SetSizeAtStart(bool at_start);
 // the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
 bool Widescreen();
+// the shape the frame is shown at, width over height: a game that widens its own view (GameInfo::hor_plus) is shown at
+// the aspect_ratio setting, at least 4:3 and at most 32:9; any other at 16:9 when Widescreen, else 4:3. Any thread
+float PictureAspect();
+// how many times wider than the console's 4:3 the picture is for a game that widens its own view, 1 for any other: the
+// game widens its camera by it, and its 2D laid out for 4:3 is placed across it (gpu/picture.h)
+float HorPlus();
 
 std::filesystem::path ExeDir();
 // the game in assets (game_files.cpp): its folder and this executable's xbe, from the extracted files or a disc
@@ -101,6 +127,12 @@ struct GameInfo {
     void (*rumble)(int port, uint16_t& left, uint16_t& right);
     // xbe file name, SHA-1: other releases the executable runs, each from its own [xbe] named config
     std::vector<std::pair<const char*, const char*>> releases;
+    // keyboard and mouse defaults: control and sources, "a" = "key:E mouse:left", over the built-in keys (input.cpp)
+    std::vector<std::pair<const char*, const char*>> controls;
+    bool mouse_look = false;  // the mouse_look setting's default
+    // the game widens its own camera by HorPlus and places its 2D (gpu::SetTwoDPlacement), so its picture takes any
+    // shape (aspect_ratio) rather than the console's 4:3 or 16:9
+    bool hor_plus = false;
 };
 extern const GameInfo kGame;
 

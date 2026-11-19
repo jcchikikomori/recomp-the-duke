@@ -6,13 +6,16 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <cstdlib>
 #include <dbghelp.h>
 #include <timeapi.h>
 
 #include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstring>
 #include <cwchar>
+#include <string>
 #include <thread>
 
 #include <imgui.h>
@@ -36,18 +39,37 @@ constexpr UINT kApplyDisplay = WM_APP + 1, kOpenWindow = WM_APP + 2;
 bool g_mode_changed = false;
 bool g_apply_posted = false;  // a display apply is waiting in the queue or running
 
+// "module+offset" of a host code address, for a crash line that still reads after the module moves
+static std::string ModuleAt(const void* addr) {
+    HMODULE m = nullptr;
+    char path[MAX_PATH] = "?";
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            static_cast<const char*>(addr), &m) || !GetModuleFileNameA(m, path, MAX_PATH))
+        return "no module";
+    const char* name = std::strrchr(path, '\\');
+    char out[MAX_PATH + 32];
+    std::snprintf(out, sizeof(out), "%s+%llX", name ? name + 1 : path,
+                  (unsigned long long)(reinterpret_cast<uintptr_t>(addr) - reinterpret_cast<uintptr_t>(m)));
+    return out;
+}
+
 // crash dump in CrashDumps beside the exe
 LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
-    // the dump holds no guest memory: the guest registers and return addresses go to the log
-    if (kernel::Thread* t = kernel::Current(); e && t && t->ctx) {
+    // the dump holds no guest memory: the guest registers and return addresses go to the log. A crash off the guest's
+    // threads (the render thread, a driver's or a Remix thread) gets its line and module too
+    if (e) {
+        kernel::Thread* g = kernel::Current();
+        bool guest = g && g->ctx;
         auto* r = e->ExceptionRecord;
-        LOGE("exception %08lX at %p on guest thread %X", r->ExceptionCode, r->ExceptionAddress, t->id);
+        LOGE("exception %08lX at %p (%s) on %s thread %lX", r->ExceptionCode, r->ExceptionAddress,
+             ModuleAt(r->ExceptionAddress).c_str(), guest ? "guest" : "host",
+             guest ? (unsigned long)g->id : GetCurrentThreadId());
         if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2) {
-            uint64_t va = r->ExceptionInformation[1], g = uint64_t(reinterpret_cast<uintptr_t>(kernel::g_base));
+            uint64_t va = r->ExceptionInformation[1], gb = uint64_t(reinterpret_cast<uintptr_t>(kernel::g_base));
             LOGE("  %s %llX, guest %08llX", r->ExceptionInformation[0] ? "write" : "read", (unsigned long long)va,
-                 (unsigned long long)(va - g));
+                 (unsigned long long)(va - gb));
         }
-        kernel::LogGuestStack(*t->ctx, 256);
+        if (guest) kernel::LogGuestStack(*g->ctx, 256);
     }
     auto dir = ExeDir() / "CrashDumps";
     CreateDirectoryW(dir.c_str(), nullptr);
@@ -64,6 +86,7 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
                                     MiniDumpWithUnloadedModules | MiniDumpWithIndirectlyReferencedMemory),
                       e ? &info : nullptr, nullptr, nullptr);
     CloseHandle(f);
+    LOGE("crash dump: CrashDumps\\%ls", name);
     logx::Flush();
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -75,6 +98,63 @@ void DumpThreads() {
             LOGI("thread %X", t->id);
             kernel::LogGuestStack(*t->ctx, 32);
         }
+}
+
+// SWP_NOACTIVATE under XBE_BACKGROUND: a test run neither takes the focus nor comes to the front
+UINT Quiet() {
+    static const UINT flags = std::getenv("XBE_BACKGROUND") ? SWP_NOACTIVATE : 0;
+    return flags;
+}
+
+// XBE_MONITOR=<name>: the monitor a test run opens on, by its device name (\\.\DISPLAY2, or DISPLAY2) or its number
+// from 1, so it can run on a virtual display instead of the one someone is using; null when unset or not found
+HMONITOR Chosen() {
+    static const HMONITOR chosen = [] {
+        const char* want = std::getenv("XBE_MONITOR");
+        if (!want || !*want) return HMONITOR(nullptr);
+        struct Find {
+            std::wstring name;
+            int number, seen = 0;
+            HMONITOR found = nullptr;
+        } find{std::wstring(want, want + std::strlen(want)), std::atoi(want)};
+        EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR m, HDC, LPRECT, LPARAM lp) -> BOOL {
+            auto& f = *reinterpret_cast<Find*>(lp);
+            MONITORINFOEXW mi{};
+            mi.cbSize = sizeof(mi);
+            GetMonitorInfoW(m, &mi);
+            std::wstring device = mi.szDevice;
+            bool named = _wcsicmp(device.c_str(), f.name.c_str()) == 0 ||
+                         (device.size() > 4 && _wcsicmp(device.c_str() + 4, f.name.c_str()) == 0);  // or without its \\.\ prefix
+            if (named || ++f.seen == f.number) {
+                f.found = m;
+                return FALSE;
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&find));
+        if (!find.found) LOGW("XBE_MONITOR %s: no such monitor, staying where the window opens", want);
+        return find.found;
+    }();
+    return chosen;
+}
+
+// the game window shown, behind the splash or without one: under XBE_BACKGROUND a test run opens off screen, or on
+// XBE_MONITOR, and takes the focus from nothing
+void Show(HWND hwnd) {
+    if (Quiet()) {
+        if (!Chosen()) SetWindowPos(hwnd, nullptr, -6000, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        return;
+    }
+    ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+}
+
+// before the window is shown: onto the chosen monitor, so every later apply and mode list is that monitor's
+void PlaceOnChosen() {
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (HMONITOR m = Chosen(); m && GetMonitorInfoW(m, &mi))
+        SetWindowPos(g_hwnd, nullptr, mi.rcMonitor.left, mi.rcMonitor.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 // window thread only
@@ -111,20 +191,27 @@ void ApplyNow() {
         const RECT& a = mi.rcWork;
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | visible);
         SetWindowPos(g_hwnd, HWND_NOTOPMOST, a.left + (a.right - a.left - w) / 2, a.top + (a.bottom - a.top - h) / 2, w, h,
-                     SWP_FRAMECHANGED);
+                     SWP_FRAMECHANGED | Quiet());
     } else {
         const RECT& m = mi.rcMonitor;
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_POPUP | visible);
-        SetWindowPos(g_hwnd, HWND_NOTOPMOST, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED);
+        SetWindowPos(g_hwnd, HWND_NOTOPMOST, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED | Quiet());
     }
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // the cursor's rules first: ImGui's handler takes every WM_SETCURSOR over the client area and shows its arrow, so
+    // in play (mouse_look holding the mouse) the cursor showed whenever the mouse moved
+    if (msg == WM_SETCURSOR && LOWORD(lp) == HTCLIENT && input::CursorHidden()) {
+        SetCursor(nullptr);
+        return TRUE;
+    }
     {
         std::lock_guard lock(UiLock());
         if (ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
     }
     if (intptr_t result = 0; kGame.message && kGame.message(hwnd, msg, wp, lp, &result)) return result;
+    if (intptr_t result = 0; input::Message(hwnd, msg, wp, lp, &result)) return result;
     switch (msg) {
         case WM_KEYDOWN:
             if (wp == VK_F3) DumpThreads();
@@ -158,8 +245,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kOpenWindow:
             CloseSplash();
             if (wp) ApplyNow();
-            ShowWindow(hwnd, SW_SHOW);
-            SetForegroundWindow(hwnd);
+            Show(hwnd);
             return 0;
         case WM_CLOSE:
             DestroyWindow(hwnd);
@@ -270,12 +356,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     RegisterClassExW(&wc);
     app::g_hwnd = CreateWindowExW(0, wc.lpszClassName, app::kGame.title, WS_POPUP, 0, 0, 1280, 720,
                                   nullptr, nullptr, inst, nullptr);
+    app::PlaceOnChosen();
     // behind a splash the window stays hidden until the game's first frame; handed over, it is set up hidden
     if (handover) {
         app::ApplyNow();
     } else if (!splash) {
         app::ApplyNow();
-        ShowWindow(app::g_hwnd, SW_SHOW);
+        app::Show(app::g_hwnd);  // XBE_BACKGROUND held only behind a splash: with none, test windows opened on the desktop
     }
 
     IMGUI_CHECKVERSION();
@@ -286,6 +373,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(app::g_hwnd);
 
     input::Init();
+    input::Window(app::g_hwnd);
     if (app::kGame.window) app::kGame.window(app::g_hwnd);
     std::wstring hdd = app::Instance() > 1 ? L"hdd" + std::to_wstring(app::Instance()) : L"hdd";
     if (app::Instance())
