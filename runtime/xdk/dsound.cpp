@@ -150,6 +150,19 @@ X86Func* Find(uint32_t guest);
 #define SYM_CDirectSoundStream_SetPitch FFFFFF1E
 #define HAS_CDirectSoundStream_SetPitch 0
 #endif
+// XDK 5849's export table names this method IDirectSoundStream_SetPitch; the RDR configs call the same method
+// CDirectSoundStream_SetPitch. Both spellings need a host override, or the title's original setter runs against
+// a DirectSound wrapper object the guest has already destroyed.
+#ifndef SYM_IDirectSoundStream_SetPitch
+#define SYM_IDirectSoundStream_SetPitch FFFFFF23
+#define HAS_IDirectSoundStream_SetPitch 0
+#endif
+// The XDK's IDirectSoundBuffer_PlayEx must be handled on the host: the guest body reaches a wrapper
+// destructor path that can free a DirectSound object still referenced by the title's own audio code.
+#ifndef SYM_IDirectSoundBuffer_PlayEx
+#define SYM_IDirectSoundBuffer_PlayEx FFFFFF24
+#define HAS_IDirectSoundBuffer_PlayEx 0
+#endif
 #ifndef SYM_CDirectSoundStream_SetLFO
 #define SYM_CDirectSoundStream_SetLFO FFFFFF1F
 #define HAS_CDirectSoundStream_SetLFO 0
@@ -901,7 +914,7 @@ static void AuditExports() {
         SYM(IDirectSoundBuffer_StopEx), SYM(IDirectSoundBuffer_Pause), SYM(IDirectSoundBuffer_SetEG),
         SYM(XAudioDownloadEffectsImage), SYM(DirectSoundCreateBuffer), SYM(IDirectSound_CreateSoundBuffer),
         SYM(IDirectSoundBuffer_Release), SYM(IDirectSoundBuffer_Unlock), SYM(IDirectSoundBuffer_SetBufferData),
-        SYM(IDirectSoundBuffer_Play), SYM(IDirectSoundBuffer_Stop), SYM(IDirectSoundBuffer_SetLoopRegion),
+        SYM(IDirectSoundBuffer_Play), SYM(IDirectSoundBuffer_PlayEx), SYM(IDirectSoundBuffer_Stop), SYM(IDirectSoundBuffer_SetLoopRegion),
         SYM(IDirectSoundBuffer_GetStatus), SYM(IDirectSoundBuffer_GetCurrentPosition), SYM(IDirectSoundBuffer_SetCurrentPosition),
         SYM(IDirectSoundBuffer_Lock), SYM(IDirectSoundBuffer_SetVolume), SYM(IDirectSoundBuffer_SetFrequency),
         SYM(IDirectSoundBuffer_SetFilter), SYM(IDirectSoundBuffer_SetHeadroom), SYM(IDirectSoundBuffer_SetMixBinVolumes),
@@ -921,7 +934,8 @@ static void AuditExports() {
         SYM(IDirectSoundBuffer_SetPitch), SYM(IDirectSoundBuffer_SetLFO),
         SYM(CDirectSoundStream_GetVoiceProperties), SYM(CDirectSoundStream_Set3DVoiceData),
         SYM(CDirectSoundStream_Use3DVoiceData), SYM(CDirectSoundStream_SetPitch), SYM(CDirectSoundStream_SetLFO),
-        SYM(CDirectSoundStream_SetOutputBuffer), SYM(IDirectSound_SetAllParameters), SYM(DirectSoundGetSampleTime)};
+        SYM(CDirectSoundStream_SetOutputBuffer), SYM(IDirectSoundStream_SetPitch), SYM(IDirectSound_SetAllParameters),
+        SYM(DirectSoundGetSampleTime)};
     std::string left;
     // the library's own section: the WMA decoder shares the export ids and touches no DSOUND object
     uint32_t lo = 0, hi = 0;
@@ -1188,6 +1202,16 @@ BUFFER(SetBufferData, 3) {
     return 0;
 }
 BUFFER(Play, 4) {
+    v.has_gain = false;  // a new sound does not ramp from the last one's levels
+    v.playing = true;
+    v.looping = a[3] & 1;
+    if (a[3] & 2) v.pos = 0;
+    v.sync = a[3] & 4;
+    return 0;
+}
+// (this, time low, time high, flags): plays now, the start time is not reproduced. Keeping this on the host
+// also avoids running the guest body, which can tear down a wrapper the title still calls into later.
+BUFFER(PlayEx, 4) {
     v.has_gain = false;  // a new sound does not ramp from the last one's levels
     v.playing = true;
     v.looping = a[3] & 1;
@@ -1488,10 +1512,20 @@ STREAM(Use3DVoiceData, 2) {
     v.use_data = a[1] != 0;
     return 0;
 }
-STREAM(SetPitch, 2) {
-    v.freq = PitchToFrequency(a[1]);
+static uint32_t SetStreamPitch(Voice& v, uint32_t pitch) {
+    v.freq = PitchToFrequency(pitch);
     return 0;
 }
+STREAM(SetPitch, 2) { return SetStreamPitch(v, a[1]); }
+#if HAS_IDirectSoundStream_SetPitch
+// The 5849 XDK names the same export IDirectSoundStream_SetPitch. Without this override its original code jumps
+// into the wrapper's pitch setter and writes through a field the guest's destructor has already zeroed.
+HLE_STDCALL(IDirectSoundStream_SetPitch, 2) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    Voice* v = Find(a[0]);
+    return v ? SetStreamPitch(*v, a[1]) : 0x80004005u;
+}
+#endif
 STREAM(SetLFO, 2) { return 0; }  // modulation is not played, as with SetEG
 // the library's own writes voice registers a host stream does not have; envelopes are not played
 HLE_STDCALL(IDirectSoundStream_SetEG, 2) { return 0; }
