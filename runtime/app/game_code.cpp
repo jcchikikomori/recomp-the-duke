@@ -97,8 +97,30 @@ uint32_t EntryOf(const std::vector<uint8_t>& xbe) {
     return image.Parse(xbe, error) ? image.entry : 0;
 }
 
-// the config in compiler\config whose [xbe] path is this xbe; an included one has no path. Releases of one xbe each
-// have a config, told apart by the entry point xbe_symbols wrote into it.
+// a config's [xbe] entry, its own or from the configs it includes (a game's generated config holds path and entry,
+// the hand-kept one that includes it names the game code DLL)
+toml::node_view<toml::node> XbeEntry(toml::table& t, const fs::path& folder, const char* key,
+                                     std::vector<toml::table>& kept) {
+    if (auto own = t["xbe"][key]) return own;
+    if (toml::array* includes = t["includes"].as_array())
+        for (auto& i : *includes)
+            if (auto name = i.value<std::string>()) {
+                kept.reserve(8);  // the views point into these
+                kept.push_back(toml::parse_file((folder / *name).string()));
+                if (auto found = XbeEntry(kept.back(), folder, key, kept)) return found;
+            }
+    return {};
+}
+
+// discs and configs differ in case: DRIVING.XBE, driving.xbe
+bool SameName(const std::string& a, const std::string& b) {
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
+               return std::tolower(x) == std::tolower(y);
+           });
+}
+
+// the config in compiler\config whose [xbe] names this xbe through its include chain; only one that names the game
+// code DLL counts. Releases of one xbe each have a config, told apart by the entry point xbe_symbols wrote into it.
 fs::path ConfigFor(const std::string& xbe, const std::vector<uint8_t>& data = {}) {
     uint32_t entry = data.empty() ? 0 : EntryOf(data);
     fs::path first;
@@ -106,8 +128,12 @@ fs::path ConfigFor(const std::string& xbe, const std::vector<uint8_t>& data = {}
     for (auto& e : fs::directory_iterator(CompilerDir() / "config", ec)) {
         try {
             toml::table t = toml::parse_file(e.path().string());
-            if (fs::path(t["xbe"]["path"].value_or(std::string())).filename() != xbe) continue;
-            if (entry && t["xbe"]["entry"].value_or(int64_t(0)) == entry) return e.path();
+            if (!t["xbe"]["library"]) continue;
+            std::vector<toml::table> kept;
+            auto path = XbeEntry(t, e.path().parent_path(), "path", kept);
+            if (!SameName(fs::path(path.value_or(std::string())).filename().string(), xbe)) continue;
+            auto entry_value = XbeEntry(t, e.path().parent_path(), "entry", kept);
+            if (entry && entry_value && entry_value.value_or(int64_t(0)) == entry) return e.path();
             if (first.empty()) first = e.path();
         } catch (const toml::parse_error&) {
         }
@@ -208,7 +234,8 @@ struct Job {
 uint32_t PartitionCount(const Image& image) {
     try {
         toml::table t = toml::parse_file(image.config.string());
-        return uint32_t(t["xbe"]["partitions"].value_or(int64_t(0)));
+        std::vector<toml::table> kept;
+        return uint32_t(XbeEntry(t, image.config.parent_path(), "partitions", kept).value_or(int64_t(0)));
     } catch (const toml::parse_error&) {
         return 0;
     }
