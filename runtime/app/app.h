@@ -125,6 +125,9 @@ struct GameInfo {
     void (*ui)(double fps);        // each frame inside the ImGui frame, UiLock held
     void (*pad)(int port, input::Pad& pad);  // a polled pad before the game gets it
     void (*rumble)(int port, uint16_t& left, uint16_t& right);
+    // disc reads paced as a drive of this many MB a second reads (the console's about 6), 0 at once; XBE_DISC_RATE
+    // overrides: a title whose movies stall when reads complete at once reports its rate here
+    float disc_rate = 0;
     // xbe file name, SHA-1: other releases the executable runs, each from its own [xbe] named config
     std::vector<std::pair<const char*, const char*>> releases;
     // keyboard and mouse defaults: control and sources, "a" = "key:E mouse:left", over the built-in keys (input.cpp)

@@ -17,4 +17,9 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
     }).detach();
 }
 
+// dsound asks for the output shape; on a headless host there is no device, so the mix stays plain stereo
+// (these are defined by xaudio2.cpp in a Windows build, which this harness leaves out)
+bool IsSurround() { return false; }
+bool IsMono() { return false; }
+
 }  // namespace audio
