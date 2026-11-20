@@ -198,20 +198,22 @@ float fogfactor(float d) {
 )";
 
 // Shader Model 3 takes no infinite literal, nor one folded from a constant (a program reading a register the draw
-// lacks): the largest float stands in, and nothing divides by or takes the log of a constant 0
+// lacks): the largest float stands in, and nothing divides by or takes the log of a constant 0. D3D12's SM5 compiler
+// rejects the MSVC-printed `1.#INF` too, so both renderers emit the same largest-finite-float stand-in for it: the
+// guest's vertex program sees identical helper behaviour whichever backend compiles it.
 std::string VsHelpers() {
-    if (!g_shader_model3) return kVsHelpers;
     std::string s = kVsHelpers;
     auto put = [&](const std::string& from, const std::string& to) {
         for (size_t at; (at = s.find(from)) != std::string::npos;) s.replace(at, from.size(), to);
     };
+    put("1.#INF", "3.402823e38");
+    if (!g_shader_model3) return s;
     put("float4 ilu_rcp(float v) { return (1.0 / v).xxxx; }",
         "float4 ilu_rcp(float v) { float r = 1.0 / (v == 0 ? 1 : v); return (v == 0 ? 3.402823e38 : r).xxxx; }");
     put("magclamp(1.0 / v)", "magclamp(v == 0 ? 3.402823e38 : 1.0 / (v == 0 ? 1 : v))");
     put("rsqrt(abs(v))", "rsqrt(v == 0 ? 1 : abs(v))");
     put("l2 = log2(mag)", "l2 = log2(mag == 0 ? 1 : mag)");
     put("log2(max(s.y, 0))", "log2(max(s.y, 1.175494e-38))");  // the smallest normal float: 2^-126
-    put("1.#INF", "3.402823e38");
     return s;
 }
 
