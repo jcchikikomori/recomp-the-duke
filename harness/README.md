@@ -32,7 +32,14 @@ Instance k runs in `<out>/k` with its own `logs`, `hdd` and `cap`. With more tha
 Environment:
 
 - `SCRIPT` pad script: lines of `frame buttons [frames held]` (default 8), `#` comments, buttons joined with `+`:
-  `UP DOWN LEFT RIGHT START BACK A B X Y LT RT LS LSD LSL LSR`. Frames are presented frames.
+  `UP DOWN LEFT RIGHT START BACK A B X Y LT RT LS LSD LSL LSR`. Frames are presented frames; a press of `N` covers
+  frames `at` through `at+N-1` (same in the runtime). `L3 R3 BLACK WHITE RS RSD RSL RSR` are valid too, and a name
+  may carry `=<value>` for an analog amount: `A B X Y BLACK WHITE LT RT` take 0-255, a stick direction takes a
+  0-32767 magnitude, e.g. `32 RT=128 10`, `45 LSR=20000 7`. Without a value they mean full deflection.
+- `XBE_PAD_CAPTURE=<file>` records pad 0's final, guest-visible state into `<file>` in that same format (also on
+  Windows): one line per change of a button or axis, starting at the presented frame where it was first polled and
+  held until the frame where it changed again. Feed the file back with `SCRIPT` here or `XBE_PAD_SCRIPT` on Windows.
+  Unset, capture is one branch per poll; a state still held when the game exits is written with the frames seen.
 - `cmd` file in the run folder: `buttons [frames held]`, pressed once when read
 - `REF=N` every Nth frame drawn by the reference renderer into `cap/ref_<frame>.tga`
 - `snap` file in the run folder: the next two frames drawn into `snap_1.tga` and `snap_2.tga`

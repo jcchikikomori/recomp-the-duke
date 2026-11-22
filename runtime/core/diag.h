@@ -13,6 +13,13 @@ inline bool Perf() {
     return on;
 }
 
+// XBE_RENDER_AUDIT set: log per-frame target checksums and per-draw texture/FVF/program deltas, and save periodic
+// frames through XBE_TEST_DIR, so two renderers' output of the same scene can be diffed (diagnostics only)
+inline bool RenderAudit() {
+    static const bool on = std::getenv("XBE_RENDER_AUDIT") != nullptr;
+    return on;
+}
+
 // XBE_CAPTURE_DIR: where F3 saves a frame, empty: F3 does not capture
 inline const std::filesystem::path& CaptureDir() {
     static const std::filesystem::path dir = [] {

@@ -153,6 +153,10 @@ IDirectSoundBuffer_GetStatus = {sec = "DSOUND", len = 0x1C, hash = "0x3BA8DAE65E
 IDirectSoundBuffer_Lock = {sec = "DSOUND", len = 0x30, hash = "0x5B6EA09A2CCF537D", xtlid = 0xB0056, calls = [[0xE2, "0x1E0C3D10AF47B37D", [[0x1E, "0x77CF69460E7107DD"], [0x55, "0xE60F054C4E847816"]]]], ret = 32, regs = []}
 IDirectSoundBuffer_Pause = {xtlid = 0xB0057}
 IDirectSoundBuffer_Play = {sec = "DSOUND", len = 0x24, hash = "0x16089413899A14CC", xtlid = 0xB0059, calls = [[0x51, "0x9C8E2BA2A67E258F", [[0x1E, "0x77CF69460E7107DD"], [0xB0, "0x5D41E5249A8F3D04"]]]], ret = 16, regs = []}
+# hk21x: PlayEx is a distinct thunk (XTLID B005A); unsigned, its guest body runs on a wrapper the title
+# still drives after teardown and dereferences a zeroed sub-object (Game.dll+656B26, read 200000080).
+# BUFFER(PlayEx) already hosts it; the missing signature only left HAS 0 and a placeholder address.
+IDirectSoundBuffer_PlayEx = {sec = "DSOUND", len = 0x24, hash = "0x16089413899A14CC", xtlid = 0xB005A, deep = true, calls = [[0x59, "0x3747B745B5CD70D5", [[0x1E, "0x77CF69460E7107DD"], [0x39, "0x2D308059DE614967"]]]], ret = 16, regs = []}
 IDirectSoundBuffer_Release = {sec = "DSOUND", len = 0x16, hash = "0x4FA5AC4A92DAE1E3", xtlid = 0xB005D, ret = 4, regs = []}
 IDirectSoundBuffer_SetAllParameters = {xtlid = 0xB005F}
 IDirectSoundBuffer_SetBufferData = {sec = "DSOUND", len = 0x20, hash = "0x58625E847EC088E7", xtlid = 0xB0060, calls = [[0xAE, "0x69BB93C1FC1404CE", [[0x1E, "0x77CF69460E7107DD"], [0x31, "0xC96EAFC107098818"], [0x8C, "0x7CCE0F3D8E824EA6"], [0x1A, "0xBEAA27CDE7C45CEC"]]]], ret = 12, regs = []}
@@ -171,6 +175,10 @@ IDirectSoundBuffer_SetMinDistance = {sec = "DSOUND", len = 0x24, hash = "0x3853F
 IDirectSoundBuffer_SetMixBinVolumes = {sec = "DSOUND", len = 0x1C, hash = "0x3BA8DAE65E120FD6", xtlid = 0xB0072, count = 2, nth = 0, deep = true, calls = [[0x4E, "0xE46B8FDA6F8BD284", [[0x1E, "0x77CF69460E7107DD"], [0x1D, "0x47CDFFB8109088B7"]]]], ret = 8, regs = []}
 IDirectSoundBuffer_SetMixBins = {sec = "DSOUND", len = 0x1C, hash = "0x3BA8DAE65E120FD6", xtlid = 0xB0071, count = 2, nth = 1, deep = true, calls = [[0x4E, "0xE46B8FDA6F8BD284", [[0x1E, "0x77CF69460E7107DD"], [0x1D, "0x47CDFFB8109088B7"]]]], ret = 8, regs = []}
 IDirectSoundBuffer_SetOutputBuffer = {xtlid = 0xB0075}
+# hk21x full signature. Without it this 0x1C931D thunk runs the title's own pitch setter, which writes through
+# the wrapper sub-object the destructor has already zeroed (Game.dll+63AC8B, write 200000018, guest 00000018).
+# BUFFER(SetPitch) already hosts it; the missing signature only left HAS 0 and a placeholder address.
+IDirectSoundBuffer_SetPitch = {sec = "DSOUND", len = 0x1C, hash = "0x3BA8DAE65E120FD6", xtlid = 0xB0076, deep = true, calls = [[0x4E, "0xE46B8FDA6F8BD284", [[0x1E, "0x77CF69460E7107DD"], [0x19, "0xCEC36E92D765A281"]]]], ret = 8, regs = []}
 IDirectSoundBuffer_SetPlayRegion = {xtlid = 0xB0077}
 IDirectSoundBuffer_SetPosition = {sec = "DSOUND", len = 0x35, hash = "0xA75396ED26FDDEF8", xtlid = 0xB0078, deep = true, calls = [[0x67, "0xFA99C6F0228DF751", [[0x1E, "0x77CF69460E7107DD"], [0x52, "0x273127244439651"]]]], ret = 20, regs = []}
 IDirectSoundBuffer_SetRolloffCurve = {xtlid = 0xB0079}

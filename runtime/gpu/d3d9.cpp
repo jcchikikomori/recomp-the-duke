@@ -896,6 +896,10 @@ private:
     struct DrawCounts {
         uint32_t made, assemble, targets, decl, shader, ffp, geometry, mods;
     } counts_{};
+    DrawCounts audit_counts_{};  // XBE_RENDER_AUDIT: previous report's counts, for per-interval draw deltas
+    uint64_t audit_vs_ = 0, audit_tex_[4] = {}, audit_key_ = 0;  // previous draw's texture/FVF/program signature
+    bool audit_set_ = false;
+    uint32_t audit_draw_ = 0;
     // what Remix is given to find the camera in, reported every ten seconds while a mod hooks the draws: the program
     // draws, and the first that draws the screen in 3D with the transforms it left on the device
     struct CameraCounts {
@@ -3189,6 +3193,21 @@ void D3D9Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t c
     mod_size_ = size;
     bool drawn = !(sh.prog && diag::D3d9SkipProgram(s.vs->hash)) && ModsBefore(s, a, sh, stages, g);
     CountCamera(sh, drawn);
+    if (diag::RenderAudit()) {
+        uint64_t tex[4] = {stages.id[0], stages.id[1], stages.id[2], stages.id[3]};
+        uint64_t vs = sh.prog && s.vs ? s.vs->hash : s.vs_handle;
+        bool change = !audit_set_ || vs != audit_vs_ || sh.vkey != audit_key_ || std::memcmp(tex, audit_tex_, sizeof tex);
+        audit_draw_++;
+        if (change)
+            LOGR("d3d9 audit: draw %u%s vs %016llx key %016llx tex %016llx %016llx %016llx %016llx", audit_draw_,
+                 sh.ffp ? " ffp" : "", (unsigned long long)vs, (unsigned long long)sh.vkey,
+                 (unsigned long long)tex[0], (unsigned long long)tex[1], (unsigned long long)tex[2],
+                 (unsigned long long)tex[3]);
+        audit_vs_ = vs;
+        audit_key_ = sh.vkey;
+        std::memcpy(audit_tex_, tex, sizeof tex);
+        audit_set_ = true;
+    }
     if (drawn) {
         CopyFeedback(stages);
         Prime(&g);
@@ -3449,20 +3468,29 @@ std::string PixelStats(IDirect3DDevice9* dev, IDirect3DSurface9* rt) {
         FAILED(dev->GetRenderTargetData(rt, sys.Get())) || FAILED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
         return "unreadable";
     }
-    uint64_t sum[3] = {}, lit = 0;
+    uint64_t sum[3] = {}, lit = 0, hash = 1469598103934665603ull;
+    bool audit = diag::RenderAudit();
     for (uint32_t y = 0; y < d.Height; y++) {
         const uint8_t* row = static_cast<const uint8_t*>(lr.pBits) + size_t(y) * lr.Pitch;
         for (uint32_t x = 0; x < d.Width; x++) {
             const uint8_t* px = row + x * 4;
-            for (int i = 0; i < 3; i++) sum[i] += px[i];
+            for (int i = 0; i < 3; i++) {
+                sum[i] += px[i];
+                hash = (hash ^ px[i]) * 1099511628211ull;  // FNV-1a, identical across renderers
+            }
             lit += (px[0] | px[1] | px[2]) != 0;
         }
     }
     sys->UnlockRect();
     uint64_t n = uint64_t(d.Width) * d.Height;
-    char text[96];
-    std::snprintf(text, sizeof(text), "mean rgb %u %u %u, %.1f%% not black", unsigned(sum[2] / n), unsigned(sum[1] / n),
-                  unsigned(sum[0] / n), 100.0 * double(lit) / double(n));
+    char text[144];
+    if (audit)
+        std::snprintf(text, sizeof(text), "mean rgb %u %u %u, %.1f%% not black, sum %016llx", unsigned(sum[2] / n),
+                      unsigned(sum[1] / n), unsigned(sum[0] / n), 100.0 * double(lit) / double(n),
+                      (unsigned long long)hash);
+    else
+        std::snprintf(text, sizeof(text), "mean rgb %u %u %u, %.1f%% not black", unsigned(sum[2] / n),
+                      unsigned(sum[1] / n), unsigned(sum[0] / n), 100.0 * double(lit) / double(n));
     return text;
 }
 
@@ -3532,6 +3560,17 @@ void D3D9Backend::Present(const Surface& front) {
              (unsigned long long)presents_, c.made, c.ffp, c.assemble, c.targets, c.decl, c.shader, c.geometry, c.mods,
              front.data, t ? t->gw : 0, t ? t->gh : 0, t ? (t->drawn ? ", drawn" : ", never drawn") : ", no target",
              unsigned(hr));
+    }
+    if (diag::RenderAudit() && presents_ && presents_ % 600 == 0) {
+        const DrawCounts& c = counts_;
+        LOGR("d3d9 audit @ %llu: target %s; +draw %u +ffp %u +asm %u +shader %u +tgt %u +decl %u +geo %u +mod %u",
+             (unsigned long long)presents_, t ? PixelStats(dev_.Get(), t->surf.Get()).c_str() : "none",
+             c.made - audit_counts_.made, c.ffp - audit_counts_.ffp, c.assemble - audit_counts_.assemble,
+             c.shader - audit_counts_.shader, c.targets - audit_counts_.targets, c.decl - audit_counts_.decl,
+             c.geometry - audit_counts_.geometry, c.mods - audit_counts_.mods);
+        audit_counts_ = c;
+        // XBE_TEST_DIR must be logs/shots; the runtime's snap hook writes <name>.bmp there on the next present
+        testdrive::SnapAs(("d3d9_" + std::to_string(presents_)).c_str());
     }
     if (!mods::D3d9().draw.empty()) {
         EndCameraFrame();

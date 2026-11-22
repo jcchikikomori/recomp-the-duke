@@ -21,16 +21,13 @@
 #include <vector>
 
 #include "core/log.h"
+#include "core/pad_script.h"
 
 namespace testdrive {
 
 namespace {
 
-struct Press {
-    double at;
-    std::string buttons;
-    double len;
-};
+using pad_script::Press;
 
 std::mutex g_lock;
 std::atomic<uint64_t> g_frames{0};
@@ -59,17 +56,7 @@ std::filesystem::path Dir() {
 }
 
 bool LoadScript() {
-    const char* p = std::getenv("XBE_PAD_SCRIPT");
-    if (FILE* f = p ? std::fopen(p, "r") : nullptr) {
-        char line[200];
-        while (std::fgets(line, sizeof line, f)) {
-            char b[128];
-            double t, len = 8;
-            if (line[0] != '#' && std::sscanf(line, "%lf %127s %lf", &t, b, &len) >= 2) g_script.push_back({t, b, len});
-        }
-        std::fclose(f);
-        LOGI("testdrive: pad script %s, %zu presses", p, g_script.size());
-    }
+    g_script = pad_script::Load(std::getenv("XBE_PAD_SCRIPT"));
     return true;
 }
 
@@ -86,49 +73,6 @@ int KeyCode(const std::string& k) {
         if (k == n) return vk;
     return 0;
 }
-
-// each name joined by +
-template <class F>
-void Each(const std::string& s, F f) {
-    size_t at = 0;
-    while (at <= s.size()) {
-        size_t e = s.find('+', at);
-        if (e == std::string::npos) e = s.size();
-        if (e > at) f(s.substr(at, e - at));
-        at = e + 1;
-    }
-}
-
-void Apply(const std::string& s, input::Pad& p) {
-    Each(s, [&](const std::string& b) {
-        if (b == "UP") p.buttons |= 1;
-        else if (b == "DOWN") p.buttons |= 2;
-        else if (b == "LEFT") p.buttons |= 4;
-        else if (b == "RIGHT") p.buttons |= 8;
-        else if (b == "START") p.buttons |= 16;
-        else if (b == "BACK") p.buttons |= 32;
-        else if (b == "L3") p.buttons |= 64;
-        else if (b == "R3") p.buttons |= 128;
-        else if (b == "A") p.analog[0] = 255;
-        else if (b == "B") p.analog[1] = 255;
-        else if (b == "X") p.analog[2] = 255;
-        else if (b == "Y") p.analog[3] = 255;
-        else if (b == "BLACK") p.analog[4] = 255;
-        else if (b == "WHITE") p.analog[5] = 255;
-        else if (b == "LT") p.analog[6] = 255;
-        else if (b == "RT") p.analog[7] = 255;
-        else if (b == "LS") p.ly = 32767;
-        else if (b == "LSD") p.ly = -32767;
-        else if (b == "LSL") p.lx = -32767;
-        else if (b == "LSR") p.lx = 32767;
-        else if (b == "RS") p.ry = 32767;
-        else if (b == "RSD") p.ry = -32767;
-        else if (b == "RSL") p.rx = -32767;
-        else if (b == "RSR") p.rx = 32767;
-    });
-}
-
-bool Active(const Press& x, double t) { return t >= x.at && t < x.at + x.len; }
 
 // the folder's cmd and snap files
 void ReadDir() {
@@ -189,9 +133,9 @@ void Pad(int port, input::Pad& p) {
     bool any = false;
     std::lock_guard lock(g_lock);
     for (const Press& x : g_script)
-        if (Active(x, t)) Apply(x.buttons, p), any = true;
+        if (pad_script::Active(x, t)) pad_script::Apply(x.buttons, p), any = true;
     for (const Press& x : g_live)
-        if (Active(x, t)) Apply(x.buttons, p), any = true;
+        if (pad_script::Active(x, t)) pad_script::Apply(x.buttons, p), any = true;
     if (any) p.connected = true;
 }
 
@@ -200,9 +144,9 @@ bool KeyHeld(int vk) {
     double t = double(g_frames.load());
     bool held = false;
     auto test = [&](const Press& x) {
-        if (!Active(x, t)) return;
-        Each(x.buttons, [&](const std::string& b) {
-            if (b.rfind("KEY:", 0) == 0 && KeyCode(b.substr(4)) == vk) held = true;
+        if (!pad_script::Active(x, t)) return;
+        pad_script::Each(x.buttons, [&](std::string_view b) {
+            if (b.substr(0, 4) == "KEY:" && KeyCode(std::string(b.substr(4))) == vk) held = true;
         });
     };
     std::lock_guard lock(g_lock);

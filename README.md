@@ -85,7 +85,7 @@ A new XDK build needs `xdk/<build>/layout.toml` and signatures made from titles 
 
 ### Miscellaneous
 - **Boot Splash** - Place a `splash.png` (or `.bmp`) beside the exe to display a splash screen at launch.
-- **Diagnostics** - Logs frame timing with `XBE_PERF`, captures a frame with F3 when `XBE_CAPTURE_DIR` is set, enables the Direct3D 12 debug layer with `XBE_D3D12_DEBUG` and silences the sound for test runs with `XBE_MUTE`, keeps a test run off screen and out of the focus with `XBE_BACKGROUND` (on a chosen monitor with `XBE_MONITOR`, by device name or number), and drives test runs with `XBE_PAD_SCRIPT` and `XBE_TEST_DIR` (scripted or file-fed presses, frames saved on request; `runtime/core/testdrive.h`).
+- **Diagnostics** - Logs frame timing with `XBE_PERF`, captures a frame with F3 when `XBE_CAPTURE_DIR` is set, enables the Direct3D 12 debug layer with `XBE_D3D12_DEBUG` and silences the sound for test runs with `XBE_MUTE`, keeps a test run off screen and out of the focus with `XBE_BACKGROUND` (on a chosen monitor with `XBE_MONITOR`, by device name or number), and drives test runs with `XBE_PAD_SCRIPT` and `XBE_TEST_DIR` (scripted or file-fed presses, frames saved on request; `runtime/core/testdrive.h`), and records a real pad session as a replayable script with `XBE_PAD_CAPTURE` (`runtime/core/pad_script.h`).
 - **Headless Harness** - Builds and runs a game on Linux without a window, GPU, audio or controller, for testing.
 
 ## Credits

@@ -28,6 +28,7 @@
 
 #include "app/app.h"
 #include "core/log.h"
+#include "core/pad_script.h"
 #include "core/testdrive.h"
 
 namespace input {
@@ -618,6 +619,7 @@ Pad Poll(int port) {
     }
     testdrive::Pad(port, p);
     if (app::kGame.pad) app::kGame.pad(port, p);
+    pad_script::Capture(port, p, testdrive::Frames());
     return p;
 }
 
