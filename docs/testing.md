@@ -50,5 +50,5 @@ the same bytes: random numbers, threads and anything seeded from the time at boo
 ## Frames
 
 `testdrive::SnapAs(name)` saves the next presented frame as `<name>.bmp` in `XBE_TEST_DIR`, top down from the back
-buffer as it is about to be shown, under Direct3D 9 and Direct3D 12 alike. A game's own test route calls it. The file
+buffer before it is presented. A game's own test route calls it. The file
 `snap` does the same with a running number.

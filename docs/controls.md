@@ -122,7 +122,7 @@ when it ends staying the overlay's until let go. Pair each with its `false`, alo
 
 The counters only grow, so any number of readers on any thread each keep the last value they saw and act on the
 difference. The picture is where the renderers draw it: the window's client area letterboxed to the picture's aspect,
-as `D3D9Backend::FrameRect` does, so `x` and `y` map onto the game's own screen by its width and height (640 by 480 on
+as the renderer does, so `x` and `y` map onto the game's own screen by its width and height (640 by 480 on
 most titles) whatever the window's size.
 
 `input::LastUsed()` is the last of keyboard, mouse or pad controller 1 used, for a menu that names keys when the

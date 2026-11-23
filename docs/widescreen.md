@@ -77,8 +77,7 @@ through the program itself); a draw reaching 98% of the screen's width spans the
 than the screen still holds. A game opts in, since what was off its screen can now be seen.
 
 How it is drawn: the placement is a squeeze of clip space about the anchor, `x' = x k + offset w`, `k = 1 / HorPlus()`.
-Shaders apply it at their end (constant `place`, register c247 under Shader Model 3); Direct3D 9's fixed function takes
-it in its projection, so tools see the same transforms.
+Shaders apply it at their end through `DrawConstants::place`.
 
 ## Passes over the frame
 

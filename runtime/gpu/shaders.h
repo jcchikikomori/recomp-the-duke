@@ -1,5 +1,4 @@
 #pragma once
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -32,7 +31,7 @@ struct PixelKey {
     uint32_t ff[4][9] = {};
     TexInfo tex[4];
     uint32_t alphakill = 0;  // bit per stage
-    uint32_t flat = 0, two_sided = 0;  // two_sided 2: the front is counter clockwise (Shader Model 3, VFACE)
+    uint32_t flat = 0, two_sided = 0;
     uint32_t proj = 0;       // fixed function: bit per stage sampled at coordinates divided by w
     uint32_t quad = 0;       // a screen quad: QuadHlsl
     uint32_t alphatest = 0;  // alpha test on: only then may the shader discard, which turns off early depth tests
@@ -43,38 +42,9 @@ uint64_t Hash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 PixelKey MakePixelKey(const State& s, const TexInfo tex[4]);
 
-// Shader Model 3, for the Direct3D 9 renderer: constants in registers, Direct3D 9's names for what passes between
-// the stages, inputs named by what they hold. The layouts are the kSm3 registers below.
-inline bool g_shader_model3 = false;
-// vertex shader constant registers under Shader Model 3: a program's own c0 to c191, then the DrawConstants it reads
-// from kSm3ProgramDraw (surf to spread); a fixed function shader's DrawConstants from c0. kSm3ModFirst on are a mod's
-// (d3d9_vertex_hlsl), then rhi_depth_clamp and the host pixel offset. Pixel shaders take DrawConstants from c0.
-constexpr uint32_t kSm3ProgramDraw = 192;
-constexpr uint32_t kSm3Place = 247;     // DrawConstants::place, for every vertex shader
-constexpr uint32_t kSm3ModFirst = 248;
-constexpr uint32_t kSm3DepthClamp = 254;  // rhi_depth_clamp, as a mod knows it; its w is always 0
-constexpr uint32_t kSm3HostPixel = 255;   // host pixels per clip unit: -1 / width, 1 / height of the bound target
-// HLSL a mod puts in every Shader Model 3 vertex shader, after the constants; it may define RHI_MOD_POSITION(p)
-inline std::string g_sm3_vertex_prelude;
-
-// a vertex input's Direct3D 9 name: D3DDECLUSAGE and usage index
-struct InputUsage {
-    uint8_t usage = 0;
-    uint8_t index = 0;
-};
-using InputUsages = std::array<InputUsage, 16>;
-// the XDK's register habit: v0 position, v2 normal, v3 and v4 colours, v9 to v12 texture coordinates
-InputUsage HabitUsage(int reg);
-// what each input of a program holds, from the output it reaches: a title lays out its own inputs (TS2's levels keep
-// position in v1, colour in v2, texture coordinates in v3), and anything reading the declaration (RTX Remix) goes by
-// the names. Each name is used once; an input that tells nothing keeps the habit's, or a spare TEXCOORD
-void ProgramInputUsages(const std::vector<uint32_t>& program, uint16_t regs, InputUsages& out);
-
 // vertex program microcode to HLSL, regs is the bit mask of v registers the draw supplies
 // decode: VertexDecode per register, 4 bits each, for elements the input assembler hands over raw
-// usages: Shader Model 3's input names, the habit's without them
-std::string VertexProgramHlsl(const std::vector<uint32_t>& program, uint16_t regs, uint64_t decode = 0,
-                              const InputUsages* usages = nullptr);
+std::string VertexProgramHlsl(const std::vector<uint32_t>& program, uint16_t regs, uint64_t decode = 0);
 // the program reads constant register reg (hardware order: c-96 is 0) by its number, not through a0
 bool ReadsConstant(const std::vector<uint32_t>& program, uint32_t reg);
 // the program reads c-37, the viewport offset that carries the XDK's half pixel screen space offset
@@ -85,10 +55,6 @@ inline int g_projection_register = -1;
 // every draw as lines, whatever the game's fill mode: a game's debugging tools set it while it runs. Read as each draw
 // is made, on the game's thread, so a host overlay clears it around its own draws to stay readable
 inline std::atomic<bool> g_wireframe{false};
-// the front of a draw that culls nothing, for a ray tracer reading Direct3D 9 (docs/d3d9.md, front faces for a ray
-// tracer): 0 off, 1 auto (counter clockwise once the title has culled clockwise and never counter clockwise), 2 clockwise
-// (Direct3D 9's own), 3 counter clockwise. The game repo names its own; XBE_D3D9_CULLNONE_FRONT (off, auto, cw, ccw) wins
-inline int g_cullnone_front = 0;
 // fixed function vertex state a shader is built for
 struct FixedKey {
     uint32_t light = 0;    // bit 0 lighting, 1 specular, 2 local viewer, 3 normalize, then D3DMCS 2 bits each from bit 8:
@@ -97,8 +63,7 @@ struct FixedKey {
     uint32_t tex[4] = {};  // per stage: coordinate set, texgen at bit 4, D3DTTFF count at bit 8, projected bit 11, set size at bit 12
 };
 FixedKey MakeFixedKey(const State& s);
-std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode = 0, const FixedKey& f = {},
-                            const InputUsages* usages = nullptr);
+std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode = 0, const FixedKey& f = {});
 std::string PixelHlsl(const PixelKey& k);
 // a screen quad's vertex or pixel shader: texture coordinates as the quad was drawn, before its far edges were pulled out
 std::string QuadHlsl(std::string s);

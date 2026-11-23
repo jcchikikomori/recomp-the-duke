@@ -308,22 +308,17 @@ void SetFrameBuffers(const char* caller, uint32_t pp) {
     }
     if (!g_backend) {
         mods::Load();
-        bool d3d9 = app::Get().renderer == "d3d9";
-        g_backend = d3d9 ? gpu::CreateD3D9Backend() : gpu::CreateBackend();
+        g_backend = gpu::CreateBackend();
         if (!g_backend->Init(w, h)) {
             LOGE("d3d: renderer init failed");
             // no owner window: this runs on the title's thread and the window may already be fullscreen over the box
             MessageBoxW(nullptr,
-                        d3d9 ? L"Direct3D 9 could not be started. Make sure the graphics driver is up to date, or set "
-                               L"renderer = \"d3d12\" in the settings file."
-                             : L"Direct3D 12 could not be started. Make sure your graphics card supports it and its "
-                               L"driver is up to date.",
+                        L"Direct3D 12 could not be started. Make sure your graphics card supports it and its driver "
+                        L"is up to date.",
                         app::kGame.short_title, MB_ICONERROR | MB_TOPMOST);
             kernel::Shutdown(1);
         }
-        // a mod reading guest memory at the draws needs them made while the game is at them
-        if (kRenderThread && !(d3d9 && mods::HooksDraws())) g_backend = gpu::CreateThreadedBackend(std::move(g_backend));
-        else if (kRenderThread) LOGI("d3d: a mod hooks draws, the renderer runs on the game's thread");
+        if (kRenderThread) g_backend = gpu::CreateThreadedBackend(std::move(g_backend));
     }
     g_state.viewport = {0, 0, w, h, 0.0f, 1.0f};
     SetDev(kDevRenderTarget, g_buffers[1]);

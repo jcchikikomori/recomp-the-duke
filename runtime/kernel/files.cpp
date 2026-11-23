@@ -1,11 +1,15 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <thread>
 
+#include "app/app.h"
 #include "kernel/disc.h"
 #include "kernel/kernel.h"
 #include "kernel/exports.h"
@@ -71,6 +75,7 @@ struct File : Object {
     std::string xbox;
     FILE* fp = nullptr;
     const Disc::Entry* entry = nullptr;  // on the disc image instead of a host path
+    bool optical = false;  // opened through D:, whether extracted or from an XISO
     bool dir = false;
     uint64_t pos = 0;
     std::vector<fs::directory_entry> entries;
@@ -239,6 +244,7 @@ struct Target {
     std::string host;                    // empty on the disc image or unmapped
     bool disc = false;                   // on the mounted disc image
     const Disc::Entry* entry = nullptr;  // there: the file or folder, null when missing
+    bool optical = false;                 // resolved through the CD-ROM device
 };
 
 Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
@@ -278,9 +284,11 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
-    if (best->first == kCdRom)
-        if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
-    return {MatchCase(best->second, parts).string()};
+    if (best->first == kCdRom) {
+        if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts), true};
+        return {MatchCase(best->second, parts).string(), false, nullptr, true};
+    }
+    return {MatchCase(best->second, parts).string(), false, nullptr, false};
 }
 
 // a bare name with no device is missing in \??, any longer path misses a folder first
@@ -307,6 +315,7 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
     auto f = std::make_shared<File>();
     f->xbox = Normalize(name);
     f->entry = e;
+    f->optical = true;
     f->dir = e->dir;
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
@@ -439,6 +448,7 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     f->host = host;
     f->xbox = Normalize(name);
     f->fp = fp;
+    f->optical = t.optical;
     f->delete_on_close = options & 0x1000;  // FILE_DELETE_ON_CLOSE
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, info);
@@ -463,6 +473,7 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
     auto f = std::make_shared<File>();
     f->host = host;
     f->xbox = Normalize(name);
+    f->optical = t.optical;
     f->dir = fs::is_directory(host, ec);
     if (!f->dir) {
         f->fp = std::fopen(host.c_str(), "r+b");
@@ -489,6 +500,24 @@ static uint64_t Offset(File& f, uint32_t off) {
     return o >= 0 ? uint64_t(o) : f.pos;
 }
 
+static float DiscRate() {
+    static const float rate = [] {
+        const char* override = std::getenv("XBE_DISC_RATE");
+        float value = override ? std::strtof(override, nullptr) : app::kGame.disc_rate;
+        if (!std::isfinite(value) || value < 0) value = 0;
+        LOGR("files: disc reads paced at %.3g MB/s", double(value));
+        return value;
+    }();
+    return rate;
+}
+
+static void DiscPace(uint32_t bytes) {
+    const float rate = DiscRate();
+    if (!bytes || rate <= 0) return;
+    const double seconds = double(bytes) / (double(rate) * 1024.0 * 1024.0);
+    std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
+}
+
 // pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
 static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
@@ -510,6 +539,7 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         if (done < chunk) break;
     }
     f->pos = pos + n;
+    if (!write && f->optical) DiscPace(n);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);

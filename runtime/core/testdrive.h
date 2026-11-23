@@ -10,7 +10,7 @@
 // XBE_PAD_SCRIPT file: lines of "frame BUTTONS [frames held]", frames counted in presents, held 8 by default, #
 // comments. XBE_TEST_DIR folder, read each frame: a file "cmd" holding "BUTTONS [frames held]" is pressed once from
 // the frame it is read (3 by default) and removed; a file "snap" saves the next presented frame as snap_<n>.bmp in
-// the folder (Direct3D 9) and is removed. BUTTONS joined by +: UP DOWN LEFT RIGHT START BACK A B X Y BLACK WHITE LT
+// the folder and is removed. BUTTONS joined by +: UP DOWN LEFT RIGHT START BACK A B X Y BLACK WHITE LT
 // RT L3 R3, LS LSD LSL LSR (the left stick up, down, left, right), RS RSD RSL RSR, KEY:<name or #vk> (a key, for
 // the game's own key reads through testdrive::KeyHeld).
 //

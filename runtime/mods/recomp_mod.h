@@ -2,9 +2,9 @@
  * Mods: libraries a player drops beside the game, loaded when the game's
  * Direct3D device is made (mods.cpp). A mod changes or adds to a title
  * without being built into it -- an overlay, a debugging tool, support for
- * a D3D9 tool such as RTX Remix in one game, a fix someone wants to try --
- * so the game's own build stays the port. docs/mods.md is the modder's
- * guide; a change to this contract updates it in the same commit.
+ * a per-frame callback or a fix someone wants to try -- so the game's own
+ * build stays the port. docs/mods.md is the modder's guide; a change to
+ * this contract updates it in the same commit.
  *
  * Where: the folder `mods` beside the executable; every .dll in it, in name
  * order. RECOMP_MOD_LIBS=0 loads none; RECOMP_MOD_LIBS_DIR names another
@@ -40,13 +40,12 @@ extern "C" {
 
 #define RECOMP_MOD_API_VERSION 5
 
-/* ---- the Direct3D 9 renderer (renderer = "d3d9" in the settings file) ----
+/* ---- reserved Direct3D 9 ABI slots (version 5) ----
  *
- * A mod hears of each draw the D3D9 renderer makes, after the renderer has
- * set the device up for it and before it is drawn, and again after. In
- * between it may change the device's state for that one draw -- what it
- * changes it puts back in `after` -- or have the draw left out. Under the
- * other renderers none of this is called. */
+ * These fields remain in the version 5 contract to keep every later field
+ * at its established offset. This runtime has no Direct3D 9 backend; these
+ * callbacks are accepted as no-ops or return 0.
+ */
 
 /* What the renderer knows of a draw. Fields are only added at the end. */
 typedef struct RecompModDraw {

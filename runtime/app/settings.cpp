@@ -8,7 +8,6 @@
 #include <windows.h>
 
 #include <algorithm>
-#include <atomic>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -59,8 +58,6 @@ void Load() {
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
     s.audio_output = std::min(t["audio_output"].value_or(s.audio_output), audio::kOutputMono);
-    s.renderer = t["renderer"].value_or(s.renderer);
-    if (s.renderer != "d3d9") s.renderer = "d3d12";
     s.keyboard_mouse = t["keyboard_mouse"].value_or(s.keyboard_mouse);
     s.mouse_look = t["mouse_look"].value_or(s.mouse_look);
     s.mouse_sensitivity = std::clamp(t["mouse_sensitivity"].value_or(s.mouse_sensitivity), 1u, 100u);
@@ -90,7 +87,6 @@ toml::table Table() {
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
                   {"join_ip", s.join_ip},
                   {"audio_output", int64_t(s.audio_output)},
-                  {"renderer", s.renderer},
                   {"keyboard_mouse", s.keyboard_mouse},
                   {"mouse_look", s.mouse_look},
                   {"mouse_sensitivity", int64_t(s.mouse_sensitivity)},
@@ -208,10 +204,6 @@ bool Widescreen() {
     Mode m = CachedOutput();
     return m.width * 2 >= m.height * 3;  // 3:2 or wider
 }
-
-static std::atomic<bool> g_size_at_start{false};
-bool SizeAtStart() { return g_size_at_start; }
-void SetSizeAtStart(bool at_start) { g_size_at_start = at_start; }
 
 float RenderScale(uint32_t guest_height) {
     float h = CachedOutput().height * (Get().render_percent / 100.0f);

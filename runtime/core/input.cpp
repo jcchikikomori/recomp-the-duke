@@ -649,7 +649,7 @@ Pointer GetPointer() {
     POINT pt{};
     bool over = want && !g_captured && GetForegroundWindow() == g_hwnd && GetCursorPos(&pt) &&
                 WindowFromPoint(pt) == g_hwnd && ScreenToClient(g_hwnd, &pt);
-    // the picture letterboxed in the client area, as the renderers show it (D3D9Backend::FrameRect)
+    // the picture letterboxed in the client area, as the renderer shows it
     RECT rc{};
     if (g_hwnd) GetClientRect(g_hwnd, &rc);
     float w = float(std::max<LONG>(rc.right - rc.left, 1));

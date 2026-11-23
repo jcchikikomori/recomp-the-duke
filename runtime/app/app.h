@@ -28,7 +28,6 @@ struct Settings {
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
-    std::string renderer = "d3d12";        // "d3d9" draws with Direct3D 9, for D3D9 tools such as RTX Remix
     bool keyboard_mouse = true;      // controller 1 is the keyboard and mouse too, bound in [controls]
     bool mouse_look = false;         // the mouse turns controller 1's right stick; GameInfo::mouse_look by default
     uint32_t mouse_sensitivity = 80;  // 1 to 100
@@ -57,11 +56,6 @@ Mode Desktop();
 std::vector<Mode> DisplayModes();  // the game window's monitor's modes, width then height ascending, no repeats
 Mode Output();
 float RenderScale(uint32_t guest_height);
-// the renderer keeps the picture's size from the start until the next; a settings page says so beside what changes it
-// (render scale, resolution, shape). No renderer of the SDK's sets it now: under a tool's d3d9.dll (RTX Remix) a new
-// size resets the back buffer live
-bool SizeAtStart();
-void SetSizeAtStart(bool at_start);
 // the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
 bool Widescreen();
 // the shape the frame is shown at, width over height: a game that widens its own view (GameInfo::hor_plus) is shown at

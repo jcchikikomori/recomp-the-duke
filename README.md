@@ -63,7 +63,6 @@ A new XDK build needs `xdk/<build>/layout.toml` and signatures made from titles 
 ### Graphics
 - **Direct3D 8** - Implements Direct3D 8 as the XDK does it, including immediate mode draws, palettes, gamma ramps and Direct3D code built into the game.
 - **Native Direct3D 12 Renderer** - Translates the Xbox's vertex programs, pixel combiners and fixed function pipeline to HLSL, with rendering on its own thread.
-- **Native Direct3D 9 Renderer** - Draws with Direct3D 9 instead when `renderer = "d3d9"` is in the settings file, using its fixed function pipeline wherever it matches the Xbox, for tools that hook Direct3D 9 such as RTX Remix. See [docs/d3d9.md](docs/d3d9.md).
 - **Any Picture Shape** - Shows a game that widens its own camera at any shape from 4:3 to 32:9 (`aspect_ratio` in the settings file), with its 2D placed by anchors the game names, as in a modern UI layout. See [docs/widescreen.md](docs/widescreen.md).
 - **Host Code in Game Tables** - Gives host functions guest addresses (`dispatch::HostThunk`, `runtime/cpu/dispatch.h`), so a game's own function tables, callbacks and menu classes can hold host code.
 - **Renderer Extensions** - Allows a game to change render targets, add passes and add to the generated shaders through `gpu::Extension`, set with `gpu::SetExtension` from `GameInfo::init`.
@@ -80,7 +79,7 @@ A new XDK build needs `xdk/<build>/layout.toml` and signatures made from titles 
 - **Disc Images** - Runs the game from an ISO in the `assets` folder, either a whole disc dump or the game partition, or from the extracted data files.
 - **System Link** - System Link can be played over LAN, or by directly connecting to a friend's IP address.
 - **Bink Movies** - Fixes Bink movies playing too fast above 30 FPS and crashing on fast reads, for games that use Bink.
-- **Mods** - Loads libraries from a `mods` folder beside the exe, with hooks into each frame and, under Direct3D 9, each draw. See [docs/mods.md](docs/mods.md).
+- **Mods** - Loads optional libraries from a `mods` folder beside the exe for per-frame callbacks. See [docs/mods.md](docs/mods.md).
 - **Crash Dumps** - Writes crash dumps to a `CrashDumps` folder beside the exe.
 
 ### Miscellaneous
